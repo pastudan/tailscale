@@ -1,17 +1,9 @@
-// Copyright (c) Tailscale Inc & AUTHORS
-// SPDX-License-Identifier: BSD-3-Clause
-
-//go:build go1.23
-
-// The tailscaled program is the Tailscale client daemon. It's configured
-// and controlled via the tailscale CLI program.
-//
-// It primarily supports Linux, though other systems will likely be
-// supported in the future.
 package main // import "tailscale.com/cmd/tailscaled"
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base36"
 	"errors"
 	"expvar"
 	"flag"
