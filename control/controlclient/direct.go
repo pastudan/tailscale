@@ -1,18 +1,18 @@
-// Copyright (c) Tailscale Inc & AUTHORS
-// SPDX-License-Identifier: BSD-3-Clause
-
 package controlclient
 
 import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1697,3 +1697,50 @@ var (
 	metricSetDNS      = clientmetric.NewCounter("controlclient_setdns")
 	metricSetDNSError = clientmetric.NewCounter("controlclient_setdns_error")
 )
+
+// decodeBase36 decodes a base36 encoded string to a byte slice.
+func decodeBase36(s string) ([]byte, error) {
+	n := new(big.Int)
+	_, ok := n.SetString(s, 36)
+	if !ok {
+		return nil, fmt.Errorf("invalid base36 string: %s", s)
+	}
+	return n.Bytes(), nil
+}
+
+// verifyHeadscaleHelperCert verifies the certificate for headscale-helper.com URLs.
+func verifyHeadscaleHelperCert(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+	if len(rawCerts) == 0 {
+		return errors.New("no certificates provided")
+	}
+
+	cert := rawCerts[0]
+	leaf, err := x509.ParseCertificate(cert)
+	if err != nil {
+		return fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	// Extract the subdomain (base36 encoded public key fingerprint)
+	host := leaf.Subject.CommonName
+	parts := strings.Split(host, ".")
+	if len(parts) < 3 {
+		return fmt.Errorf("invalid headscale-helper.com URL: %s", host)
+	}
+	base36Fingerprint := parts[0]
+
+	// Decode the base36 encoded public key fingerprint
+	expectedFingerprint, err := decodeBase36(base36Fingerprint)
+	if err != nil {
+		return fmt.Errorf("failed to decode base36 fingerprint: %w", err)
+	}
+
+	// Compute the SHA-256 fingerprint of the certificate's public key
+	actualFingerprint := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
+
+	// Compare the expected and actual fingerprints
+	if !bytes.Equal(expectedFingerprint, actualFingerprint[:]) {
+		return errors.New("certificate fingerprint mismatch")
+	}
+
+	return nil
+}
